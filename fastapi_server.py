@@ -9,6 +9,64 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
 from dotenv import load_dotenv
+import json
+from pathlib import Path
+from fastapi import Request
+
+TICKERS_FILE = "saved_tickers.json"
+RESULTS_DIR = "analysis_results"
+
+# Create results directory if it doesn't exist
+Path(RESULTS_DIR).mkdir(exist_ok=True)
+
+# Add these helper functions before your endpoints
+def load_saved_tickers():
+    """Load saved tickers from JSON file"""
+    if os.path.exists(TICKERS_FILE):
+        try:
+            with open(TICKERS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_tickers_to_file(tickers_list):
+    """Save tickers to JSON file"""
+    try:
+        with open(TICKERS_FILE, 'w') as f:
+            json.dump(tickers_list, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving tickers: {e}")
+        return False
+
+def save_analysis_result(ticker, date, decision, config):
+    """Save analysis result to JSON file"""
+    try:
+        timestamp = datetime.now().isoformat()
+        filename = f"{RESULTS_DIR}/{ticker}_{date}_{timestamp.replace(':', '-')}.json"
+        
+        result = {
+            "ticker": ticker,
+            "date": date,
+            "timestamp": timestamp,
+            "decision": decision,
+            "config": {
+                "deep_think_llm": config.get("deep_think_llm"),
+                "quick_think_llm": config.get("quick_think_llm"),
+                "max_debate_rounds": config.get("max_debate_rounds"),
+                "online_tools": config.get("online_tools")
+            }
+        }
+        
+        with open(filename, 'w') as f:
+            json.dump(result, f, indent=2)
+        
+        print(f"✓ Analysis saved to: {filename}")
+        return filename
+    except Exception as e:
+        print(f"Error saving analysis: {e}")
+        return None
 
 # Load environment variables from .env file
 load_dotenv()
@@ -82,19 +140,65 @@ async def health_check():
 @app.post("/analyze", response_model=TradingResponse)
 async def analyze_stock(request: TradingRequest):
     try:
-        config = DEFAULT_CONFIG.copy()
-        config["deep_think_llm"] = request.deep_think_llm
-        config["quick_think_llm"] = request.quick_think_llm
-        config["max_debate_rounds"] = request.max_debate_rounds
-        config["online_tools"] = request.online_tools
+        import subprocess
+        import tempfile
+        import json
+        import sys
         
-        ta = TradingAgentsGraph(debug=True, config=config)
-        loop = asyncio.get_event_loop()
-        _, decision = await loop.run_in_executor(executor, ta.propagate, request.ticker, request.date)
+        print(f"DEBUG: Analyzing {request.ticker} on {request.date}")
         
-        # Convert decision to dict if it's not already
-        if not isinstance(decision, dict):
-            decision = {"decision": decision, "raw_output": str(decision)}
+        # Create a temporary file to pass the configuration
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            config_data = {
+                'ticker': request.ticker,
+                'date': request.date,
+                'deep_think_llm': request.deep_think_llm,
+                'quick_think_llm': request.quick_think_llm,
+                'max_debate_rounds': request.max_debate_rounds,
+                'online_tools': request.online_tools
+            }
+            json.dump(config_data, f)
+            config_file = f.name
+        
+        # Create a worker script path
+        worker_script = os.path.join(os.path.dirname(__file__), 'trading_worker.py')
+        
+        # Run analysis in a separate process with UTF-8 encoding
+        result = subprocess.run(
+            [sys.executable, worker_script, config_file],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=600,
+            env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        )
+        
+        # Clean up temp file
+        os.unlink(config_file)
+        
+        # DEBUG: Print what we got from the worker
+        print(f"Worker stdout length: {len(result.stdout)}")
+        print(f"Worker stdout (first 500 chars): {result.stdout[:500]}")
+        print(f"Worker stderr: {result.stderr[:500] if result.stderr else 'empty'}")
+        print(f"Worker return code: {result.returncode}")
+        
+        if result.returncode != 0:
+            print(f"Worker error: {result.stderr}")
+            raise Exception(f"Analysis failed: {result.stderr}")
+        
+        if not result.stdout.strip():
+            raise Exception(f"Worker produced no output. stderr: {result.stderr}")
+        
+        # Parse the result
+        try:
+            decision = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON from worker output")
+            print(f"Raw stdout: {result.stdout}")
+            raise Exception(f"Worker produced invalid JSON: {str(e)}")
+        
+        save_analysis_result(request.ticker, request.date, decision, config_data)
         
         return TradingResponse(
             ticker=request.ticker,
@@ -103,8 +207,11 @@ async def analyze_stock(request: TradingRequest):
             status="completed"
         )
     except Exception as e:
+        print(f"ERROR in analyze_stock: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 async def run_analysis_background(job_id: str, request: TradingRequest):
     try:
         config = DEFAULT_CONFIG.copy()
@@ -169,5 +276,113 @@ async def delete_job(job_id: str):
     del job_results[job_id]
     return {"message": f"Job {job_id} deleted"}
 
+@app.post("/clear-memory")
+async def clear_memory():
+    """Clear TradingAgents memory collections to avoid conflicts in batch processing"""
+    try:
+        import shutil
+        import os
+        import chromadb
+        
+        cleared = []
+        
+        # Method 1: Try to delete ChromaDB collections directly
+        try:
+            # Find where ChromaDB stores data (check common locations)
+            chroma_paths = [
+                '.chroma',
+                'chroma_db',
+                '.chromadb',
+                os.path.join(os.getcwd(), '.chroma'),
+            ]
+            
+            for path in chroma_paths:
+                if os.path.exists(path):
+                    shutil.rmtree(path)
+                    cleared.append(path)
+                    print(f"✓ Deleted ChromaDB directory: {path}")
+        except Exception as e:
+            print(f"Error deleting ChromaDB directories: {e}")
+        
+        # Method 2: Try to delete collections through ChromaDB client
+        try:
+            client = chromadb.Client()
+            collections = client.list_collections()
+            for collection in collections:
+                try:
+                    client.delete_collection(collection.name)
+                    cleared.append(f"collection:{collection.name}")
+                    print(f"✓ Deleted collection: {collection.name}")
+                except:
+                    pass
+        except Exception as e:
+            print(f"Note: Could not access ChromaDB client: {e}")
+        
+        if cleared:
+            return {"message": "Memory cleared", "cleared": cleared}
+        else:
+            return {"message": "No memory found to clear"}
+            
+    except Exception as e:
+        print(f"Error clearing memory: {e}")
+        return {"message": "Memory clear attempted", "error": str(e)}
+    
+def clear_chromadb_collections():
+    """Clear ChromaDB collections and reset the client"""
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        import shutil
+        import os
+        
+        # Step 1: Delete physical ChromaDB directories
+        chroma_dirs = ['.chroma', 'chroma', '.chromadb', 'chroma_db']
+        for dir_name in chroma_dirs:
+            if os.path.exists(dir_name):
+                try:
+                    shutil.rmtree(dir_name)
+                    print(f"✓ Deleted directory: {dir_name}")
+                except Exception as e:
+                    print(f"Could not delete {dir_name}: {e}")
+        
+        # Step 2: Force reset ChromaDB's internal state
+        try:
+            # Clear the singleton instance cache
+            if hasattr(chromadb, '_client'):
+                delattr(chromadb, '_client')
+            if hasattr(chromadb.api, '_client'):
+                delattr(chromadb.api, '_client')
+        except:
+            pass
+        
+        # Step 3: Try to delete all collections from any existing clients
+        try:
+            import gc
+            gc.collect()  # Force garbage collection
+        except:
+            pass
+            
+        print("✓ ChromaDB reset complete")
+        
+    except Exception as e:
+        print(f"Error in clear_chromadb_collections: {e}")
+
+@app.get("/tickers")
+async def get_tickers():
+    """Get saved tickers list"""
+    tickers = load_saved_tickers()
+    return {"tickers": tickers}
+
+@app.post("/tickers")
+async def update_tickers(request: Request):
+    """Update saved tickers list"""
+    data = await request.json()
+    tickers_list = data if isinstance(data, list) else data.get('tickers', [])
+    success = save_tickers_to_file(tickers_list)
+    if success:
+        return {"message": "Tickers saved successfully", "tickers": tickers_list}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to save tickers")
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

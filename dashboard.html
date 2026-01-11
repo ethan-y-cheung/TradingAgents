@@ -226,23 +226,150 @@
             margin-top: 10px;
             width: auto;
         }
+
+        /* Ticker Management Styles */
+        .ticker-management {
+            background: #f0f4ff;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .ticker-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .ticker-input-group input {
+            flex: 1;
+        }
+
+        .add-ticker-btn {
+            background: #4caf50;
+            padding: 12px 24px;
+            width: auto;
+            white-space: nowrap;
+        }
+
+        .ticker-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .ticker-tag {
+            background: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 2px solid #667eea;
+        }
+
+        .ticker-tag span {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .remove-ticker {
+            background: #f44336;
+            color: white;
+            border: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .remove-ticker:hover {
+            background: #d32f2f;
+        }
+
+        .analysis-mode {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 12px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+
+        .mode-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .mode-btn:hover {
+            border-color: #667eea;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Trading Agents</h1>
+            <h1>🤖 TradingAgents</h1>
             <p>Multi-Agent LLM Financial Trading Analysis</p>
         </div>
 
         <div class="card">
-            <h2 style="margin-bottom: 25px; color: #333;">Configure Analysis</h2>
+            <h2 style="margin-bottom: 20px; color: #333;">📊 Ticker Management</h2>
+            
+            <div class="ticker-management">
+                <div class="ticker-input-group">
+                    <input type="text" id="newTicker" placeholder="Enter ticker symbol (e.g., AAPL, NVDA, TSLA)">
+                    <button type="button" class="add-ticker-btn" id="addTickerBtn">➕ Add Ticker</button>
+                </div>
+
+                <div id="tickerList" class="ticker-list">
+                    <div class="empty-state">No tickers added yet. Add one above!</div>
+                </div>
+
+                <div class="analysis-mode">
+                    <button type="button" class="mode-btn active" id="singleMode">
+                        🎯 Analyze One Ticker
+                    </button>
+                    <button type="button" class="mode-btn" id="batchMode">
+                        📊 Analyze All Tickers
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-bottom: 25px; color: #333;">⚙️ Configure Analysis</h2>
             
             <form id="analysisForm">
-                <div class="row">
+                <div class="row" id="singleTickerRow">
                     <div class="form-group">
-                        <label for="ticker">Stock Ticker *</label>
-                        <input type="text" id="ticker" placeholder="e.g., NVDA, AAPL, TSLA" required>
+                        <label for="ticker">Stock Ticker * (or select from list above)</label>
+                        <select id="ticker">
+                            <option value="">-- Select a ticker --</option>
+                        </select>
                     </div>
 
                     <div class="form-group">
@@ -308,22 +435,192 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8000';
+        console.log('Script loaded!');
+        
+        const API_URL = window.location.origin;
+        let tickers = [];
+        let analysisMode = 'single';
 
-        // Set default date to today
-        document.getElementById('date').valueAsDate = new Date();
+        // Setup on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded');
+            loadTickersFromServer();
+            document.getElementById('date').valueAsDate = new Date();
+            setupEventListeners();
+        });
 
-        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        function setupEventListeners() {
+            console.log('Setting up event listeners...');
             
-            const ticker = document.getElementById('ticker').value.trim().toUpperCase();
+            const addBtn = document.getElementById('addTickerBtn');
+            console.log('Add ticker button found:', addBtn);
+            
+            if (addBtn) {
+                addBtn.onclick = function() {
+                    console.log('Button clicked!');
+                    addTicker();
+                };
+            }
+            
+            const tickerInput = document.getElementById('newTicker');
+            if (tickerInput) {
+                tickerInput.onkeypress = function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addTicker();
+                    }
+                };
+            }
+
+            const singleBtn = document.getElementById('singleMode');
+            const batchBtn = document.getElementById('batchMode');
+            
+            if (singleBtn) {
+                singleBtn.onclick = function() {
+                    setAnalysisMode('single');
+                };
+            }
+            
+            if (batchBtn) {
+                batchBtn.onclick = function() {
+                    setAnalysisMode('batch');
+                };
+            }
+
+            document.getElementById('analysisForm').onsubmit = async function(e) {
+                e.preventDefault();
+                if (analysisMode === 'single') {
+                    await runSingleAnalysis();
+                } else {
+                    await runBatchAnalysis();
+                }
+            };
+        }
+
+        async function loadTickersFromServer() {
+            try {
+                const response = await fetch(`${API_URL}/tickers`);
+                const data = await response.json();
+                if (data.tickers && data.tickers.length > 0) {
+                    tickers = data.tickers;
+                    updateTickerDisplay();
+                    console.log('Loaded tickers from server:', tickers);
+                }
+            } catch (e) {
+                console.log('No saved tickers found or error loading:', e);
+            }
+        }
+
+        async function saveTickers() {
+            // Save to server
+            try {
+                await fetch(`${API_URL}/tickers`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tickers: tickers })  // Wrap in object
+                });
+                console.log('Tickers saved to server');
+            } catch (e) {
+                console.error('Error saving tickers to server:', e);
+            }
+            
+            // Also save to localStorage as backup
+            localStorage.setItem('tradingAgentTickers', JSON.stringify(tickers));
+            updateTickerDisplay();
+        }
+
+
+        function addTicker() {
+            console.log('addTicker called');
+            const input = document.getElementById('newTicker');
+            const ticker = input.value.trim().toUpperCase();
+            
+            if (!ticker) {
+                alert('Please enter a ticker symbol');
+                return;
+            }
+
+            if (tickers.includes(ticker)) {
+                alert('This ticker is already in your list');
+                return;
+            }
+
+            tickers.push(ticker);
+            console.log('Tickers now:', tickers);
+            saveTickers();
+            input.value = '';
+            input.focus();
+        }
+
+        function removeTicker(ticker) {
+            if (confirm(`Remove ${ticker} from your list?`)) {
+                tickers = tickers.filter(t => t !== ticker);
+                saveTickers();
+            }
+        }
+
+        function updateTickerDisplay() {
+            console.log('Updating display for tickers:', tickers);
+            const listDiv = document.getElementById('tickerList');
+            const tickerSelect = document.getElementById('ticker');
+            
+            if (tickers.length === 0) {
+                listDiv.innerHTML = '<div class="empty-state">No tickers added yet. Add one above!</div>';
+                tickerSelect.innerHTML = '<option value="">-- No tickers added --</option>';
+                return;
+            }
+
+            listDiv.innerHTML = tickers.map(ticker => `
+                <div class="ticker-tag">
+                    <span>${ticker}</span>
+                    <button class="remove-ticker" data-ticker="${ticker}" title="Remove ${ticker}">×</button>
+                </div>
+            `).join('');
+
+            listDiv.querySelectorAll('.remove-ticker').forEach(btn => {
+                btn.onclick = function() {
+                    removeTicker(this.dataset.ticker);
+                };
+            });
+
+            tickerSelect.innerHTML = '<option value="">-- Select a ticker --</option>' + 
+                tickers.map(ticker => `<option value="${ticker}">${ticker}</option>`).join('');
+        }
+
+        function setAnalysisMode(mode) {
+            analysisMode = mode;
+            document.getElementById('singleMode').classList.toggle('active', mode === 'single');
+            document.getElementById('batchMode').classList.toggle('active', mode === 'batch');
+            
+            const singleRow = document.getElementById('singleTickerRow');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const tickerSelect = document.getElementById('ticker');
+            
+            if (mode === 'single') {
+                singleRow.style.display = 'grid';
+                analyzeBtn.textContent = '🚀 Run Analysis';
+                tickerSelect.required = true;  // Make required in single mode
+            } else {
+                singleRow.style.display = 'none';
+                analyzeBtn.textContent = '🚀 Analyze All Tickers';
+                tickerSelect.required = false;  // Not required in batch mode
+            }
+        }
+
+        async function runSingleAnalysis() {
+            const ticker = document.getElementById('ticker').value;
+            
+            if (!ticker) {
+                alert('Please select a ticker');
+                return;
+            }
+
             const date = document.getElementById('date').value;
             const deepModel = document.getElementById('deepModel').value;
             const quickModel = document.getElementById('quickModel').value;
             const debateRounds = parseInt(document.getElementById('debateRounds').value);
             const onlineTools = document.getElementById('onlineTools').checked;
 
-            // Show loading, hide results
             document.getElementById('loading').classList.add('active');
             document.getElementById('results').classList.remove('active');
             document.getElementById('analyzeBtn').disabled = true;
@@ -331,12 +628,9 @@
             try {
                 const response = await fetch(`${API_URL}/analyze`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        ticker,
-                        date,
+                        ticker, date,
                         deep_think_llm: deepModel,
                         quick_think_llm: quickModel,
                         max_debate_rounds: debateRounds,
@@ -352,12 +646,93 @@
                     displayError(data.detail || 'An error occurred');
                 }
             } catch (error) {
-                displayError(`Network error: ${error.message}. Make sure the API server is running.`);
+                displayError(`Network error: ${error.message}`);
             } finally {
                 document.getElementById('loading').classList.remove('active');
                 document.getElementById('analyzeBtn').disabled = false;
             }
-        });
+        }
+
+        async function runBatchAnalysis() {
+            if (tickers.length === 0) {
+                alert('Please add at least one ticker to analyze');
+                return;
+            }
+
+            const date = document.getElementById('date').value;
+            const deepModel = document.getElementById('deepModel').value;
+            const quickModel = document.getElementById('quickModel').value;
+            const debateRounds = parseInt(document.getElementById('debateRounds').value);
+            const onlineTools = document.getElementById('onlineTools').checked;
+
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('analyzeBtn').disabled = true;
+
+            const results = [];
+            const errors = [];
+
+            const loadingDiv = document.getElementById('loading');
+            loadingDiv.innerHTML = `
+                <div class="spinner"></div>
+                <h3 style="color: #667eea; margin-bottom: 10px;">Analyzing ${tickers.length} ticker(s)...</h3>
+                <p style="color: #666;">Processing: <span id="currentTicker">Starting...</span></p>
+                <p style="color: #999; margin-top: 10px; font-size: 14px;">Progress: <span id="progress">0/${tickers.length}</span></p>
+            `;
+
+            for (let i = 0; i < tickers.length; i++) {
+                const ticker = tickers[i];
+                document.getElementById('currentTicker').textContent = ticker;
+                document.getElementById('progress').textContent = `${i + 1}/${tickers.length}`;
+
+                try {
+                    const response = await fetch(`${API_URL}/analyze`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ticker, date,
+                            deep_think_llm: deepModel,
+                            quick_think_llm: quickModel,
+                            max_debate_rounds: debateRounds,
+                            online_tools: onlineTools
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        results.push(data);
+                    } else {
+                        errors.push({ ticker, error: data.detail || 'Unknown error' });
+                    }
+                } catch (error) {
+                    errors.push({ ticker, error: error.message });
+                }
+
+                // Clear memory between tickers to avoid collection conflicts
+                try {
+                    await fetch(`${API_URL}/clear-memory`, { method: 'POST' });
+                } catch (e) {
+                    console.log('Note: Memory clear endpoint not available');
+                }
+
+                // Small delay between requests
+                if (i < tickers.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+
+            loadingDiv.innerHTML = `
+                <div class="spinner"></div>
+                <h3 style="color: #667eea; margin-bottom: 10px;">Analyzing...</h3>
+                <p style="color: #666;">This may take several minutes.</p>
+            `;
+
+            displayBatchResults(results, errors);
+
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById('analyzeBtn').disabled = false;
+        }
 
         function displayResults(data) {
             const resultsDiv = document.getElementById('results');
@@ -366,11 +741,10 @@
                 <div class="result-header">
                     <h2>${data.ticker} Analysis</h2>
                     <p>Date: ${data.date}</p>
-                    <span class="status-badge status-success">Analysis Complete</span>
+                    <span class="status-badge status-success">Complete</span>
                 </div>
             `;
 
-            // Display decision details
             if (data.decision) {
                 for (const [key, value] of Object.entries(data.decision)) {
                     html += `
@@ -380,11 +754,52 @@
                         </div>
                     `;
                 }
+
+                html += `
+                    <div class="result-section">
+                        <h3>Raw JSON</h3>
+                        <div class="json-viewer">${JSON.stringify(data.decision, null, 2)}</div>
+                    </div>
+                `;
             }
 
             resultsDiv.innerHTML = html;
             resultsDiv.classList.add('active');
-            resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function displayBatchResults(results, errors) {
+            const resultsDiv = document.getElementById('results');
+            
+            let html = `
+                <div class="result-header">
+                    <h2>📊 Batch Analysis Complete</h2>
+                    <p>Analyzed ${results.length} ticker(s) successfully</p>
+                    ${errors.length > 0 ? `<p style="color: #ffeb3b;">⚠️ ${errors.length} error(s)</p>` : ''}
+                </div>
+            `;
+
+            results.forEach((data, index) => {
+                html += `
+                    <div class="result-section">
+                        <h3>${index + 1}. ${data.ticker} - ${data.date}</h3>
+                        <div class="result-content">${JSON.stringify(data.decision, null, 2)}</div>
+                    </div>
+                `;
+            });
+
+            if (errors.length > 0) {
+                html += `
+                    <div class="result-section error">
+                        <h3>❌ Errors</h3>
+                        <div class="result-content">${errors.map(e => `${e.ticker}: ${e.error}`).join('\n')}</div>
+                    </div>
+                `;
+            }
+
+            resultsDiv.innerHTML = html;
+            resultsDiv.classList.add('active');
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
         }
 
         function displayError(message) {
@@ -396,7 +811,6 @@
                 </div>
             `;
             resultsDiv.classList.add('active');
-            resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         function formatKey(key) {
@@ -410,12 +824,6 @@
                 return JSON.stringify(value, null, 2);
             }
             return String(value);
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Copied to clipboard!');
-            });
         }
     </script>
 </body>
