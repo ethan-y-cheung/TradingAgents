@@ -16,7 +16,11 @@ dependencies = [
     "langchain-google-genai>=4.0.0",
     "langchain-openai>=0.3.23",
     "langgraph>=0.4.8",
-    "langgraph-checkpoint-sqlite>=2.0.0",
+    # Upper bounds: langgraph 1.0.x requires langgraph-checkpoint <4.0.0,>=2.1.0.
+    # Without these, pip resolves checkpoint 4.x and the package fails to import
+    # (Reviver.__init__() unexpected kwarg 'allowed_objects'). See DECISIONS.md.
+    "langgraph-checkpoint>=2.1.0,<4.0.0",
+    "langgraph-checkpoint-sqlite>=2.0.0,<3.0.0",
     "pandas>=2.3.0",
     "parsel>=1.10.0",
     "pytz>=2025.2",

@@ -28,9 +28,11 @@ import { cn } from "@/lib/utils";
 import type { LlmModel, TradingRequest } from "@/lib/types";
 
 const MODELS: { value: LlmModel; label: string }[] = [
-  { value: "gpt-4o-mini", label: "GPT-4o Mini · Cheap" },
-  { value: "gpt-4o", label: "GPT-4o · Balanced" },
-  { value: "gpt-4", label: "GPT-4 · Premium" },
+  { value: "gpt-5.4-nano", label: "GPT-5.4 Nano · Cheapest" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 Mini · Cheap" },
+  { value: "gpt-5.4", label: "GPT-5.4 · Balanced" },
+  { value: "gpt-5.5", label: "GPT-5.5 · Deep" },
+  { value: "gpt-5.5-pro", label: "GPT-5.5 Pro · Premium" },
 ];
 
 const ROUNDS = [
@@ -43,8 +45,20 @@ const ROUNDS = [
 const schema = z.object({
   ticker: z.string(),
   date: z.string().min(1, "Select an analysis date"),
-  deep_think_llm: z.enum(["gpt-4o-mini", "gpt-4o", "gpt-4"]),
-  quick_think_llm: z.enum(["gpt-4o-mini", "gpt-4o", "gpt-4"]),
+  deep_think_llm: z.enum([
+    "gpt-5.4-nano",
+    "gpt-5.4-mini",
+    "gpt-5.4",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+  ]),
+  quick_think_llm: z.enum([
+    "gpt-5.4-nano",
+    "gpt-5.4-mini",
+    "gpt-5.4",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+  ]),
   max_debate_rounds: z.coerce.number().int().min(1),
   online_tools: z.boolean(),
 });
@@ -81,8 +95,8 @@ export function AnalysisForm({
     defaultValues: {
       ticker: "",
       date: today,
-      deep_think_llm: "gpt-4o-mini",
-      quick_think_llm: "gpt-4o-mini",
+      deep_think_llm: "gpt-5.5",
+      quick_think_llm: "gpt-5.4-mini",
       max_debate_rounds: 1,
       online_tools: false,
     },

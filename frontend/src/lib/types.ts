@@ -4,7 +4,12 @@ export interface TickersResponse {
   tickers: string[];
 }
 
-export type LlmModel = "gpt-4o-mini" | "gpt-4o" | "gpt-4";
+export type LlmModel =
+  | "gpt-5.4-nano"
+  | "gpt-5.4-mini"
+  | "gpt-5.4"
+  | "gpt-5.5"
+  | "gpt-5.5-pro";
 
 export interface TradingRequest {
   ticker: string;

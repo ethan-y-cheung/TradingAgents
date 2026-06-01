@@ -42,6 +42,10 @@ Backend (terminal 1):
 python backend/server.py        # http://localhost:8000
 ```
 
+The repo ships a `.venv` at the root; activate it (or call
+`.venv/Scripts/python.exe` directly on Windows). `server.py` already forces
+UTF-8 stdout, so it no longer crashes on Windows cp1252.
+
 Frontend (terminal 2):
 
 ```bash
@@ -86,5 +90,54 @@ reports, `investment_debate_state`, and `risk_debate_state`.
 - User feedback via `sonner` toasts — never `alert()`/`confirm()`.
 - Markdown reports render through `react-markdown` + `remark-gfm`, not string replace.
 
+### LLM model options
+
+The analysis form's model dropdown lives in
+`frontend/src/components/analysis-form.tsx` (`MODELS` array + the two zod
+enums + the form defaults) and the `LlmModel` union in
+`frontend/src/lib/types.ts`. These must stay in sync with the OpenAI model
+names the backend accepts — the canonical list is
+`tradingagents/llm_clients/model_catalog.py`. Current options:
+`gpt-5.4-nano`, `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.5`, `gpt-5.5-pro`.
+Backend defaults (`tradingagents/default_config.py`): deep = `gpt-5.5`,
+quick = `gpt-5.4-mini`. If you add/rename a model, update all four frontend
+spots so the type, validation, options, and defaults agree.
+
 See `frontend/DESIGN.md` for the design system and `DECISIONS.md` for the
 rationale behind key choices.
+
+## Git topology
+
+- `origin` = your fork `ethan-y-cheung/TradingAgents`; `upstream` =
+  `TauricResearch/TradingAgents` (the original research repo).
+- Single-branch workflow (personal project): everything lands on `main`, no
+  long-lived feature branches. `main` was last synced even with `upstream/main`
+  on 2026-06-01; the web layer (`backend/`, `frontend/`, `data/`) lives only on
+  the fork, not upstream.
+- To pull future upstream changes: `git fetch upstream && git merge
+  upstream/main`. Expect `.gitignore` conflicts (upstream maintains a large
+  Python `.gitignore`; keep it and re-append the "Project-specific (web layer)"
+  block at the bottom). Upstream does not touch `backend/`, `frontend/`, or
+  `data/`, so those won't conflict.
+
+## Dependency gotcha (langgraph)
+
+`langgraph` 1.0.x requires `langgraph-checkpoint >=2.1.0,<4.0.0`. A bare
+`pip install langgraph-checkpoint-sqlite` resolves checkpoint 4.x and the
+package fails to import with
+`Reviver.__init__() got an unexpected keyword argument 'allowed_objects'`.
+`pyproject.toml` pins the compatible upper bounds
+(`langgraph-checkpoint>=2.1.0,<4.0.0`, `langgraph-checkpoint-sqlite>=2.0.0,<3.0.0`).
+Verified-good in the current `.venv`: `langgraph-checkpoint==2.1.2`,
+`langgraph-checkpoint-sqlite==2.0.11`. If imports break after a dep refresh,
+check these first.
+
+## Verifying changes end-to-end
+
+1. Backend: `python backend/server.py`, then
+   `curl http://localhost:8000/health` (expect `{"status":"healthy"}`),
+   `/tickers`, `/results`.
+2. Frontend: `cd frontend && npm run build` (type-check + lint gate), then
+   `npm run dev` and exercise dashboard / history / analysis pages.
+3. The `/browse` skill (gstack) drives a headless browser for visual QA — used
+   previously to verify all three pages in light + dark themes.

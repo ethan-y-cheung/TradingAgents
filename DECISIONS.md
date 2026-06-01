@@ -3,6 +3,23 @@
 Best-practice decisions made during the UI/UX revamp, with rationale. Newest
 first.
 
+## Upstream sync (2026-06-01)
+
+- **Merged 136 upstream commits** (`TauricResearch/TradingAgents`) into the fork's
+  `main`, then merged the `feat/ui-revamp` web layer on top and deleted the
+  branch (single-branch personal workflow). The web layer (`backend/`,
+  `frontend/`, `data/`) is fork-only and did not conflict; only `.gitignore`
+  conflicted (resolved by keeping upstream's comprehensive file + re-appending
+  the project-specific block).
+- **Pinned langgraph checkpoint deps** in `pyproject.toml`
+  (`langgraph-checkpoint>=2.1.0,<4.0.0`, `langgraph-checkpoint-sqlite>=2.0.0,<3.0.0`).
+  Why: `langgraph` 1.0.x rejects checkpoint 4.x; an unpinned install crashed on
+  import (`allowed_objects` kwarg). See CLAUDE.md "Dependency gotcha".
+- **Refreshed the frontend model dropdown** to the GPT-5.x names upstream now
+  uses (`gpt-5.4-nano/-mini`, `gpt-5.4`, `gpt-5.5`, `gpt-5.5-pro`), defaulting to
+  deep=`gpt-5.5` / quick=`gpt-5.4-mini` to match `default_config.py`. The old
+  `gpt-4o*` names were stale. Canonical source: `model_catalog.py`.
+
 ## Repository structure
 
 - **Isolated the web layer into `backend/` and runtime data into `data/`.** The
