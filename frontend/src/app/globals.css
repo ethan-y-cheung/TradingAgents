@@ -3,79 +3,89 @@
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Light palette (colorhunt 2f...): F8FAFC near-white, D9EAFD pale blue,
+   * BCCCDC blue-gray, 9AA6B2 slate. Indigo brand accent borrowed from the
+   * dark palette's 2F2FE4 so the two themes share an action color.
+   */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 8%;
+    --background: 210 40% 98%;          /* F8FAFC */
+    --foreground: 222 47% 16%;          /* deep navy ink for AA contrast */
 
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 8%;
+    --card-foreground: 222 47% 16%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 8%;
+    --popover-foreground: 222 47% 16%;
 
-    --primary: 240 9% 12%;
-    --primary-foreground: 0 0% 98%;
+    --primary: 240 78% 54%;             /* 2F2FE4 indigo brand */
+    --primary-foreground: 210 40% 98%;
 
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 9% 12%;
+    --secondary: 213 88% 92%;           /* D9EAFD */
+    --secondary-foreground: 222 47% 20%;
 
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
+    --muted: 213 60% 94%;
+    --muted-foreground: 210 13% 50%;    /* derived from 9AA6B2, darkened for contrast */
 
-    --accent: 240 5% 96%;
-    --accent-foreground: 240 9% 12%;
+    --accent: 213 88% 92%;              /* D9EAFD */
+    --accent-foreground: 240 78% 40%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
-    --ring: 240 9% 12%;
+    --border: 210 31% 80%;              /* BCCCDC */
+    --input: 210 31% 80%;
+    --ring: 240 78% 54%;                /* indigo focus ring */
 
-    --buy: 142 71% 38%;
+    --buy: 152 62% 36%;
     --buy-foreground: 0 0% 100%;
     --sell: 0 72% 51%;
     --sell-foreground: 0 0% 100%;
-    --hold: 38 92% 45%;
+    --hold: 35 92% 42%;
     --hold-foreground: 0 0% 100%;
 
     --radius: 0.625rem;
   }
 
+  /*
+   * Dark palette (colorhunt f8...): 080616 near-black navy, 1A1953 navy,
+   * 162E93 deep blue, 2F2FE4 vivid indigo. Background is the darkest, surfaces
+   * step up through the navies, indigo is the brand/action color.
+   */
   .dark {
-    --background: 240 10% 6%;
-    --foreground: 0 0% 95%;
+    --background: 249 57% 6%;           /* 080616 */
+    --foreground: 226 100% 96%;
 
-    --card: 240 9% 9%;
-    --card-foreground: 0 0% 95%;
+    --card: 241 53% 13%;                /* between 080616 and 1A1953 */
+    --card-foreground: 226 100% 96%;
 
-    --popover: 240 9% 9%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 241 53% 13%;
+    --popover-foreground: 226 100% 96%;
 
-    --primary: 0 0% 95%;
-    --primary-foreground: 240 9% 9%;
+    --primary: 240 78% 60%;             /* 2F2FE4 indigo, lifted for dark bg */
+    --primary-foreground: 226 100% 97%;
 
-    --secondary: 240 6% 14%;
-    --secondary-foreground: 0 0% 95%;
+    --secondary: 241 53% 21%;           /* 1A1953 */
+    --secondary-foreground: 226 100% 96%;
 
-    --muted: 240 6% 14%;
-    --muted-foreground: 240 5% 60%;
+    --muted: 241 50% 18%;
+    --muted-foreground: 226 30% 72%;
 
-    --accent: 240 6% 16%;
-    --accent-foreground: 0 0% 95%;
+    --accent: 230 74% 33%;              /* 162E93 */
+    --accent-foreground: 226 100% 97%;
 
-    --destructive: 0 63% 46%;
+    --destructive: 0 63% 50%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 5% 18%;
-    --input: 240 5% 18%;
-    --ring: 240 5% 70%;
+    --border: 233 55% 26%;              /* between 1A1953 and 162E93 */
+    --input: 233 55% 26%;
+    --ring: 240 78% 65%;                /* indigo focus ring */
 
-    --buy: 142 64% 48%;
-    --buy-foreground: 144 80% 6%;
-    --sell: 0 72% 58%;
+    --buy: 152 60% 50%;
+    --buy-foreground: 153 80% 7%;
+    --sell: 0 75% 62%;
     --sell-foreground: 0 0% 100%;
-    --hold: 38 92% 55%;
+    --hold: 38 92% 58%;
     --hold-foreground: 38 92% 8%;
   }
 }

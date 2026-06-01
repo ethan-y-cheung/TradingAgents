@@ -19,17 +19,29 @@ decoration.
 
 ## 3. Color
 
-HSL CSS variables in `src/app/globals.css`, light + dark.
+HSL CSS variables in `src/app/globals.css`, light + dark. The palette is
+indigo-on-navy (dark) / indigo-on-pale-blue (light), sharing one indigo brand
+action color (`#2F2FE4`) across both themes.
 
-- **Base:** neutral slate. Dark default (`--background: 240 10% 6%`), light
-  available via toggle.
-- **Semantic signals** (never the only cue — always paired with text + icon):
-  - `buy` — green (`142 71% 38%` light / `142 64% 48%` dark)
-  - `sell` — red (`0 72% 51%` / `0 72% 58%`)
-  - `hold` — amber (`38 92% 45%` / `38 92% 55%`)
-  - `UNKNOWN` — muted neutral
-- **Primary action:** near-black in light, near-white in dark (high-contrast,
-  neutral — accent color is reserved for data signals, not chrome).
+- **Dark palette** (colorhunt): `#080616` near-black navy → `--background`;
+  `#1A1953` navy → card / secondary surfaces; `#162E93` deep blue → accent /
+  borders; `#2F2FE4` vivid indigo → `--primary` / `--ring`. Default theme.
+- **Light palette** (colorhunt): `#F8FAFC` near-white → `--background`;
+  `#D9EAFD` pale blue → secondary / muted / accent; `#BCCCDC` blue-gray →
+  borders / inputs; `#9AA6B2` slate → `--muted-foreground`; deep navy ink for
+  `--foreground` (AA contrast); `#2F2FE4` indigo → `--primary` / `--ring`.
+- **Primary / action:** indigo `#2F2FE4` (lifted slightly in dark for contrast)
+  on both themes — used for the active mode button, Add/Run buttons, links,
+  focus rings, and the brand mark.
+- **Semantic signals** (never the only cue — always paired with text + icon),
+  retuned to sit on the blue-toned bases:
+  - `buy` — green (`152 62% 36%` light / `152 60% 50%` dark)
+  - `sell` — red (`0 72% 51%` / `0 75% 62%`)
+  - `hold` — amber (`35 92% 42%` / `38 92% 58%`)
+  - `UNKNOWN` — muted (blue-gray)
+- **Accessibility:** dark text is near-white blue (`226 100% 96%`); light text is
+  deep navy (`222 47% 16%`); both clear AA on their surfaces. Signal colors keep
+  their distinct hues against the blue base.
 
 ## 4. Typography
 
