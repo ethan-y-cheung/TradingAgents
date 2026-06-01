@@ -84,7 +84,10 @@ reports, `investment_debate_state`, and `risk_debate_state`.
 - shadcn/ui (new-york) + Radix primitives in `src/components/ui`. Feature
   components live one level up in `src/components`.
 - Tailwind with HSL CSS-variable tokens; semantic signal colors `buy`/`sell`/`hold`.
-- Theming via `next-themes` (default dark, system-aware).
+- Theming via `next-themes` (defaults to `system`, follows OS preference). The
+  header `theme-toggle` is a single icon button that flips between light and
+  dark (sun shown in dark, moon in light) — no dropdown, no explicit "system"
+  option.
 - All financial/numeric text uses the `tabular` class (tabular numerals) and
   the mono font for tickers, dates, and prices.
 - User feedback via `sonner` toasts — never `alert()`/`confirm()`.

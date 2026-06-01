@@ -25,7 +25,9 @@ action color (`#2F2FE4`) across both themes.
 
 - **Dark palette** (colorhunt): `#080616` near-black navy → `--background`;
   `#1A1953` navy → card / secondary surfaces; `#162E93` deep blue → accent /
-  borders; `#2F2FE4` vivid indigo → `--primary` / `--ring`. Default theme.
+  borders; `#2F2FE4` vivid indigo → `--primary` / `--ring`. The app defaults to
+  `system` (follows the OS); the header toggle switches explicitly between light
+  and dark.
 - **Light palette** (colorhunt): `#F8FAFC` near-white → `--background`;
   `#D9EAFD` pale blue → secondary / muted / accent; `#BCCCDC` blue-gray →
   borders / inputs; `#9AA6B2` slate → `--muted-foreground`; deep navy ink for
