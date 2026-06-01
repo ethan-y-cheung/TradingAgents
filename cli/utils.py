@@ -1,21 +1,43 @@
-import questionary
+import os
+from pathlib import Path
 from typing import List, Optional, Tuple, Dict
 
-from cli.models import AnalystType
+import questionary
+from dotenv import find_dotenv, set_key
+from rich.console import Console
+
+from cli.models import AnalystType, AssetType
+from tradingagents.llm_clients.api_key_env import get_api_key_env
+from tradingagents.llm_clients.model_catalog import get_model_options
+
+console = Console()
+
+TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
 
 ANALYST_ORDER = [
     ("Market Analyst", AnalystType.MARKET),
-    ("Social Media Analyst", AnalystType.SOCIAL),
+    ("Sentiment Analyst", AnalystType.SOCIAL),
     ("News Analyst", AnalystType.NEWS),
     ("Fundamentals Analyst", AnalystType.FUNDAMENTALS),
 ]
 
+CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
+
 
 def get_ticker() -> str:
-    """Prompt the user to enter a ticker symbol."""
+    """Prompt the user to enter a ticker symbol, preserving exchange suffixes.
+
+    Uses questionary.text (not typer.prompt, which strips trailing dot-suffixes
+    like ``000404.SH`` on some shells) and validates the symbol charset so an
+    obvious typo is caught before the run starts.
+    """
     ticker = questionary.text(
-        "Enter the ticker symbol to analyze:",
-        validate=lambda x: len(x.strip()) > 0 or "Please enter a valid ticker symbol.",
+        f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
+        validate=lambda x: (
+            not x.strip()
+            or (all(ch.isalnum() or ch in "._-^" for ch in x.strip()) and len(x.strip()) <= 32)
+            or "Please enter a valid ticker symbol, e.g. AAPL, 000404.SZ, 0700.HK."
+        ),
         style=questionary.Style(
             [
                 ("text", "fg:green"),
@@ -24,11 +46,35 @@ def get_ticker() -> str:
         ),
     ).ask()
 
-    if not ticker:
+    if ticker is None:
         console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
         exit(1)
 
+    return normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
+
+
+def normalize_ticker_symbol(ticker: str) -> str:
+    """Normalize ticker input while preserving exchange suffixes."""
     return ticker.strip().upper()
+
+
+def detect_asset_type(ticker: str) -> AssetType:
+    normalized_ticker = ticker.strip().upper()
+    if normalized_ticker.endswith(CRYPTO_SUFFIXES):
+        return AssetType.CRYPTO
+    return AssetType.STOCK
+
+
+def filter_analysts_for_asset_type(
+    analysts: List[AnalystType], asset_type: AssetType
+) -> List[AnalystType]:
+    if asset_type != AssetType.CRYPTO:
+        return analysts
+    return [
+        analyst
+        for analyst in analysts
+        if analyst != AnalystType.FUNDAMENTALS
+    ]
 
 
 def get_analysis_date() -> str:
@@ -64,12 +110,18 @@ def get_analysis_date() -> str:
     return date.strip()
 
 
-def select_analysts() -> List[AnalystType]:
+def select_analysts(asset_type: AssetType = AssetType.STOCK) -> List[AnalystType]:
     """Select analysts using an interactive checkbox."""
+    available_analysts = filter_analysts_for_asset_type(
+        [value for _, value in ANALYST_ORDER],
+        asset_type,
+    )
     choices = questionary.checkbox(
         "Select Your [Analysts Team]:",
         choices=[
-            questionary.Choice(display, value=value) for display, value in ANALYST_ORDER
+            questionary.Choice(display, value=value)
+            for display, value in ANALYST_ORDER
+            if value in available_analysts
         ],
         instruction="\n- Press Space to select/unselect analysts\n- Press 'a' to select/unselect all\n- Press Enter when done",
         validate=lambda x: len(x) > 0 or "You must select at least one analyst.",
@@ -122,44 +174,70 @@ def select_research_depth() -> int:
     return choice
 
 
-def select_shallow_thinking_agent(provider) -> str:
-    """Select shallow thinking llm engine using an interactive selection."""
+def _fetch_openrouter_models() -> List[Tuple[str, str]]:
+    """Fetch available models from the OpenRouter API."""
+    import requests
+    try:
+        resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
+        resp.raise_for_status()
+        models = resp.json().get("data", [])
+        return [(m.get("name") or m["id"], m["id"]) for m in models]
+    except Exception as e:
+        console.print(f"\n[yellow]Could not fetch OpenRouter models: {e}[/yellow]")
+        return []
 
-    # Define shallow thinking llm engine options with their corresponding model names
-    SHALLOW_AGENT_OPTIONS = {
-        "openai": [
-            ("GPT-4o-mini - Fast and efficient for quick tasks", "gpt-4o-mini"),
-            ("GPT-4.1-nano - Ultra-lightweight model for basic operations", "gpt-4.1-nano"),
-            ("GPT-4.1-mini - Compact model with good performance", "gpt-4.1-mini"),
-            ("GPT-4o - Standard model with solid capabilities", "gpt-4o"),
-        ],
-        "anthropic": [
-            ("Claude Haiku 3.5 - Fast inference and standard capabilities", "claude-3-5-haiku-latest"),
-            ("Claude Sonnet 3.5 - Highly capable standard model", "claude-3-5-sonnet-latest"),
-            ("Claude Sonnet 3.7 - Exceptional hybrid reasoning and agentic capabilities", "claude-3-7-sonnet-latest"),
-            ("Claude Sonnet 4 - High performance and excellent reasoning", "claude-sonnet-4-0"),
-        ],
-        "google": [
-            ("Gemini 2.0 Flash-Lite - Cost efficiency and low latency", "gemini-2.0-flash-lite"),
-            ("Gemini 2.0 Flash - Next generation features, speed, and thinking", "gemini-2.0-flash"),
-            ("Gemini 2.5 Flash - Adaptive thinking, cost efficiency", "gemini-2.5-flash-preview-05-20"),
-        ],
-        "openrouter": [
-            ("Meta: Llama 4 Scout", "meta-llama/llama-4-scout:free"),
-            ("Meta: Llama 3.3 8B Instruct - A lightweight and ultra-fast variant of Llama 3.3 70B", "meta-llama/llama-3.3-8b-instruct:free"),
-            ("google/gemini-2.0-flash-exp:free - Gemini Flash 2.0 offers a significantly faster time to first token", "google/gemini-2.0-flash-exp:free"),
-        ],
-        "ollama": [
-            ("llama3.1 local", "llama3.1"),
-            ("llama3.2 local", "llama3.2"),
-        ]
-    }
+
+def select_openrouter_model() -> str:
+    """Select an OpenRouter model from the newest available, or enter a custom ID."""
+    models = _fetch_openrouter_models()
+
+    choices = [questionary.Choice(name, value=mid) for name, mid in models[:5]]
+    choices.append(questionary.Choice("Custom model ID", value="custom"))
 
     choice = questionary.select(
-        "Select Your [Quick-Thinking LLM Engine]:",
+        "Select OpenRouter Model (latest available):",
+        choices=choices,
+        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
+        style=questionary.Style([
+            ("selected", "fg:magenta noinherit"),
+            ("highlighted", "fg:magenta noinherit"),
+            ("pointer", "fg:magenta noinherit"),
+        ]),
+    ).ask()
+
+    if choice is None or choice == "custom":
+        return questionary.text(
+            "Enter OpenRouter model ID (e.g. google/gemma-4-26b-a4b-it):",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
+        ).ask().strip()
+
+    return choice
+
+
+def _prompt_custom_model_id() -> str:
+    """Prompt user to type a custom model ID."""
+    return questionary.text(
+        "Enter model ID:",
+        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
+    ).ask().strip()
+
+
+def _select_model(provider: str, mode: str) -> str:
+    """Select a model for the given provider and mode (quick/deep)."""
+    if provider.lower() == "openrouter":
+        return select_openrouter_model()
+
+    if provider.lower() == "azure":
+        return questionary.text(
+            f"Enter Azure deployment name ({mode}-thinking):",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a deployment name.",
+        ).ask().strip()
+
+    choice = questionary.select(
+        f"Select Your [{mode.title()}-Thinking LLM Engine]:",
         choices=[
             questionary.Choice(display, value=value)
-            for display, value in SHALLOW_AGENT_OPTIONS[provider.lower()]
+            for display, value in get_model_options(provider, mode)
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -172,89 +250,67 @@ def select_shallow_thinking_agent(provider) -> str:
     ).ask()
 
     if choice is None:
-        console.print(
-            "\n[red]No shallow thinking llm engine selected. Exiting...[/red]"
-        )
+        console.print(f"\n[red]No {mode} thinking llm engine selected. Exiting...[/red]")
         exit(1)
 
+    if choice == "custom":
+        return _prompt_custom_model_id()
+
     return choice
+
+
+def select_shallow_thinking_agent(provider) -> str:
+    """Select shallow thinking llm engine using an interactive selection."""
+    return _select_model(provider, "quick")
 
 
 def select_deep_thinking_agent(provider) -> str:
     """Select deep thinking llm engine using an interactive selection."""
+    return _select_model(provider, "deep")
 
-    # Define deep thinking llm engine options with their corresponding model names
-    DEEP_AGENT_OPTIONS = {
-        "openai": [
-            ("GPT-4.1-nano - Ultra-lightweight model for basic operations", "gpt-4.1-nano"),
-            ("GPT-4.1-mini - Compact model with good performance", "gpt-4.1-mini"),
-            ("GPT-4o - Standard model with solid capabilities", "gpt-4o"),
-            ("o4-mini - Specialized reasoning model (compact)", "o4-mini"),
-            ("o3-mini - Advanced reasoning model (lightweight)", "o3-mini"),
-            ("o3 - Full advanced reasoning model", "o3"),
-            ("o1 - Premier reasoning and problem-solving model", "o1"),
-        ],
-        "anthropic": [
-            ("Claude Haiku 3.5 - Fast inference and standard capabilities", "claude-3-5-haiku-latest"),
-            ("Claude Sonnet 3.5 - Highly capable standard model", "claude-3-5-sonnet-latest"),
-            ("Claude Sonnet 3.7 - Exceptional hybrid reasoning and agentic capabilities", "claude-3-7-sonnet-latest"),
-            ("Claude Sonnet 4 - High performance and excellent reasoning", "claude-sonnet-4-0"),
-            ("Claude Opus 4 - Most powerful Anthropic model", "	claude-opus-4-0"),
-        ],
-        "google": [
-            ("Gemini 2.0 Flash-Lite - Cost efficiency and low latency", "gemini-2.0-flash-lite"),
-            ("Gemini 2.0 Flash - Next generation features, speed, and thinking", "gemini-2.0-flash"),
-            ("Gemini 2.5 Flash - Adaptive thinking, cost efficiency", "gemini-2.5-flash-preview-05-20"),
-            ("Gemini 2.5 Pro", "gemini-2.5-pro-preview-06-05"),
-        ],
-        "openrouter": [
-            ("DeepSeek V3 - a 685B-parameter, mixture-of-experts model", "deepseek/deepseek-chat-v3-0324:free"),
-            ("Deepseek - latest iteration of the flagship chat model family from the DeepSeek team.", "deepseek/deepseek-chat-v3-0324:free"),
-        ],
-        "ollama": [
-            ("llama3.1 local", "llama3.1"),
-            ("qwen3", "qwen3"),
-        ]
-    }
-    
-    choice = questionary.select(
-        "Select Your [Deep-Thinking LLM Engine]:",
-        choices=[
-            questionary.Choice(display, value=value)
-            for display, value in DEEP_AGENT_OPTIONS[provider.lower()]
-        ],
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style(
-            [
-                ("selected", "fg:magenta noinherit"),
-                ("highlighted", "fg:magenta noinherit"),
-                ("pointer", "fg:magenta noinherit"),
-            ]
-        ),
-    ).ask()
+def _llm_provider_table() -> list[tuple[str, str, str | None]]:
+    """(display_name, provider_key, base_url) for every supported provider.
 
-    if choice is None:
-        console.print("\n[red]No deep thinking llm engine selected. Exiting...[/red]")
-        exit(1)
-
-    return choice
-
-def select_llm_provider() -> tuple[str, str]:
-    """Select the OpenAI api url using interactive selection."""
-    # Define OpenAI api options with their corresponding endpoints
-    BASE_URLS = [
-        ("OpenAI", "https://api.openai.com/v1"),
-        ("Anthropic", "https://api.anthropic.com/"),
-        ("Google", "https://generativelanguage.googleapis.com/v1"),
-        ("Openrouter", "https://openrouter.ai/api/v1"),
-        ("Ollama", "http://localhost:11434/v1"),        
+    Shared by the interactive picker and by env-driven configuration so an
+    env-set provider resolves to the same default endpoint the menu uses.
+    Ollama users can point at a remote ollama-serve via OLLAMA_BASE_URL
+    (convention from the broader Ollama ecosystem); falls back to the
+    localhost default when unset.
+    """
+    ollama_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+    return [
+        ("OpenAI", "openai", "https://api.openai.com/v1"),
+        ("Google", "google", None),
+        ("Anthropic", "anthropic", "https://api.anthropic.com/"),
+        ("xAI", "xai", "https://api.x.ai/v1"),
+        ("DeepSeek", "deepseek", "https://api.deepseek.com"),
+        ("Qwen", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+        ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
+        ("MiniMax", "minimax", "https://api.minimax.io/v1"),
+        ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
+        ("Azure OpenAI", "azure", None),
+        ("Ollama", "ollama", ollama_url),
     ]
-    
+
+
+def provider_default_url(provider_key: str) -> str | None:
+    """Return the default backend URL for a provider key, or None if unknown."""
+    key = provider_key.lower()
+    for _, pk, url in _llm_provider_table():
+        if pk == key:
+            return url
+    return None
+
+
+def select_llm_provider() -> tuple[str, str | None]:
+    """Select the LLM provider and its API endpoint."""
+    PROVIDERS = _llm_provider_table()
+
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
-            questionary.Choice(display, value=(display, value))
-            for display, value in BASE_URLS
+            questionary.Choice(display, value=(provider_key, url))
+            for display, provider_key, url in PROVIDERS
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -267,10 +323,255 @@ def select_llm_provider() -> tuple[str, str]:
     ).ask()
     
     if choice is None:
-        console.print("\n[red]no OpenAI backend selected. Exiting...[/red]")
+        console.print("\n[red]No LLM provider selected. Exiting...[/red]")
         exit(1)
-    
-    display_name, url = choice
-    print(f"You selected: {display_name}\tURL: {url}")
-    
-    return display_name, url
+
+    provider, url = choice
+    return provider, url
+
+
+def ask_openai_reasoning_effort() -> str:
+    """Ask for OpenAI reasoning effort level."""
+    choices = [
+        questionary.Choice("Medium (Default)", "medium"),
+        questionary.Choice("High (More thorough)", "high"),
+        questionary.Choice("Low (Faster)", "low"),
+    ]
+    return questionary.select(
+        "Select Reasoning Effort:",
+        choices=choices,
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+
+def ask_anthropic_effort() -> str | None:
+    """Ask for Anthropic effort level.
+
+    Controls token usage and response thoroughness on Claude 4.5 / 4.6 / 4.7
+    models. The API also accepts "max"; we expose low/medium/high as the
+    common selection range.
+    """
+    return questionary.select(
+        "Select Effort Level:",
+        choices=[
+            questionary.Choice("High (recommended)", "high"),
+            questionary.Choice("Medium (balanced)", "medium"),
+            questionary.Choice("Low (faster, cheaper)", "low"),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+
+def ask_gemini_thinking_config() -> str | None:
+    """Ask for Gemini thinking configuration.
+
+    Returns thinking_level: "high" or "minimal".
+    Client maps to appropriate API param based on model series.
+    """
+    return questionary.select(
+        "Select Thinking Mode:",
+        choices=[
+            questionary.Choice("Enable Thinking (recommended)", "high"),
+            questionary.Choice("Minimal/Disable Thinking", "minimal"),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:green noinherit"),
+            ("highlighted", "fg:green noinherit"),
+            ("pointer", "fg:green noinherit"),
+        ]),
+    ).ask()
+
+
+def ask_glm_region() -> tuple[str, str]:
+    """Ask which GLM platform (Z.AI international vs BigModel China) to use.
+
+    Zhipu serves the same GLM models under two brands with separate
+    accounts; keys aren't interchangeable. Returns (provider_key, backend_url).
+    """
+    return questionary.select(
+        "Select GLM platform:",
+        choices=[
+            questionary.Choice(
+                "Z.AI — api.z.ai (international, uses ZHIPU_API_KEY)",
+                value=("glm", "https://api.z.ai/api/paas/v4/"),
+            ),
+            questionary.Choice(
+                "BigModel — open.bigmodel.cn (China, uses ZHIPU_CN_API_KEY)",
+                value=("glm-cn", "https://open.bigmodel.cn/api/paas/v4/"),
+            ),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+
+def ask_qwen_region() -> tuple[str, str]:
+    """Ask which Qwen region (international vs China) to use.
+
+    Alibaba DashScope exposes two endpoints with separate accounts —
+    a key from one region does NOT authenticate against the other
+    (fixes #758). Returns (provider_key, backend_url).
+    """
+    return questionary.select(
+        "Select Qwen region:",
+        choices=[
+            questionary.Choice(
+                "International — dashscope-intl.aliyuncs.com (uses DASHSCOPE_API_KEY)",
+                value=("qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
+            ),
+            questionary.Choice(
+                "China — dashscope.aliyuncs.com (uses DASHSCOPE_CN_API_KEY)",
+                value=("qwen-cn", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            ),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+
+def ask_minimax_region() -> tuple[str, str]:
+    """Ask which MiniMax region (global vs China) to use.
+
+    MiniMax exposes two endpoints with separate accounts — a key from
+    one region does NOT authenticate against the other. Returns
+    (provider_key, backend_url).
+    """
+    return questionary.select(
+        "Select MiniMax region:",
+        choices=[
+            questionary.Choice(
+                "Global — api.minimax.io (uses MINIMAX_API_KEY)",
+                value=("minimax", "https://api.minimax.io/v1"),
+            ),
+            questionary.Choice(
+                "China — api.minimaxi.com (uses MINIMAX_CN_API_KEY)",
+                value=("minimax-cn", "https://api.minimaxi.com/v1"),
+            ),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:cyan noinherit"),
+            ("highlighted", "fg:cyan noinherit"),
+            ("pointer", "fg:cyan noinherit"),
+        ]),
+    ).ask()
+
+
+def confirm_ollama_endpoint(url: str) -> None:
+    """Show the resolved Ollama endpoint after provider selection.
+
+    Surfaces three things the user benefits from seeing before model
+    selection: which URL we'll actually hit, where it came from
+    (\`OLLAMA_BASE_URL\` vs default), and a soft warning if the URL is
+    missing the scheme/port that ollama-serve expects. The warning is
+    advisory only — we don't reject malformed input, since the user may
+    be doing something deliberately unusual (e.g. a reverse-proxy path).
+    """
+    from_env = os.environ.get("OLLAMA_BASE_URL")
+    origin = " (from OLLAMA_BASE_URL)" if from_env and from_env == url else ""
+    console.print(f"[green]✓ Using Ollama at {url}{origin}[/green]")
+
+    if not url.startswith(("http://", "https://")):
+        console.print(
+            f"[yellow]Note: {url!r} is missing a scheme. "
+            f"Ollama-serve typically expects a URL like "
+            f"http://<host>:11434/v1.[/yellow]"
+        )
+    elif ":11434" not in url and "://localhost" not in url and "://127.0.0.1" not in url:
+        # Soft hint when the port differs from the ollama-serve default
+        # and the host isn't local (where users sometimes proxy on :80).
+        console.print(
+            f"[yellow]Note: {url!r} doesn't include port 11434. "
+            f"Make sure your remote ollama-serve listens on the port "
+            f"shown above.[/yellow]"
+        )
+
+
+def ensure_api_key(provider: str) -> Optional[str]:
+    """Make sure the API key for `provider` is available in the environment.
+
+    If the env var is already set, returns its value untouched. Otherwise
+    interactively prompts the user, persists the value to the project's
+    .env file via python-dotenv's set_key (creating .env if needed), and
+    exports it into os.environ so the current process picks it up.
+
+    Returns None for providers that do not require a key (e.g. ollama)
+    and for providers not found in the canonical mapping.
+    """
+    env_var = get_api_key_env(provider)
+    if env_var is None:
+        return None  # ollama / unknown — no key check possible
+
+    existing = os.environ.get(env_var)
+    if existing:
+        return existing
+
+    console.print(
+        f"\n[yellow]{env_var} is not set in your environment.[/yellow]"
+    )
+    key = questionary.password(
+        f"Paste your {env_var} (will be saved to .env):",
+        style=questionary.Style([
+            ("text", "fg:cyan"),
+            ("highlighted", "noinherit"),
+        ]),
+    ).ask()
+    if not key:
+        console.print(
+            f"[red]Skipped. API calls will fail until {env_var} is set.[/red]"
+        )
+        return None
+
+    env_path = find_dotenv(usecwd=True) or str(Path.cwd() / ".env")
+    Path(env_path).touch(exist_ok=True)
+    set_key(env_path, env_var, key)
+    os.environ[env_var] = key
+    console.print(f"[green]Saved {env_var} to {env_path}[/green]")
+    return key
+
+
+def ask_output_language() -> str:
+    """Ask for report output language."""
+    choice = questionary.select(
+        "Select Output Language:",
+        choices=[
+            questionary.Choice("English (default)", "English"),
+            questionary.Choice("Chinese (中文)", "Chinese"),
+            questionary.Choice("Japanese (日本語)", "Japanese"),
+            questionary.Choice("Korean (한국어)", "Korean"),
+            questionary.Choice("Hindi (हिन्दी)", "Hindi"),
+            questionary.Choice("Spanish (Español)", "Spanish"),
+            questionary.Choice("Portuguese (Português)", "Portuguese"),
+            questionary.Choice("French (Français)", "French"),
+            questionary.Choice("German (Deutsch)", "German"),
+            questionary.Choice("Arabic (العربية)", "Arabic"),
+            questionary.Choice("Russian (Русский)", "Russian"),
+            questionary.Choice("Custom language", "custom"),
+        ],
+        style=questionary.Style([
+            ("selected", "fg:yellow noinherit"),
+            ("highlighted", "fg:yellow noinherit"),
+            ("pointer", "fg:yellow noinherit"),
+        ]),
+    ).ask()
+
+    if choice == "custom":
+        return questionary.text(
+            "Enter language name (e.g. Turkish, Vietnamese, Thai, Indonesian):",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter a language name.",
+        ).ask().strip()
+
+    return choice
