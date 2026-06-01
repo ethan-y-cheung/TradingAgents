@@ -1,13 +1,15 @@
 .venv
-results
 env/
 __pycache__/
 .DS_Store
 *.csv
 /src/
-eval_results/
 eval_data/
 *.egg-info/
 .env
-analysis_results/
 .gstack/
+
+# Runtime data (generated analyses); saved_tickers.json is tracked
+data/results/
+data/eval_results/
+data/analysis_results/

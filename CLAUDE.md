@@ -8,20 +8,30 @@ exposed over a FastAPI HTTP API, with a Next.js web frontend.
 ```
 TradingAgents/
 ├── tradingagents/          # Core multi-agent graph (LangGraph) — analysts, researchers, trader, risk
-├── trading_worker.py       # Subprocess worker invoked per-analysis (isolates ChromaDB state)
-├── fastapi_server.py       # HTTP API + legacy HTML routes (port 8000)
+├── cli/                    # Typer CLI (tradingagents console script)
+├── backend/                # Web/server layer
+│   ├── server.py           # FastAPI HTTP API + legacy HTML routes (port 8000)
+│   ├── worker.py           # Subprocess worker invoked per-analysis (isolates ChromaDB state)
+│   └── templates/          # Legacy vanilla HTML UI (dashboard/history/analysis_viewer), kept as fallback
 ├── frontend/               # Next.js 15 (App Router) + shadcn/ui web app (port 3000)
-├── eval_results/           # Per-ticker analysis logs (full_states_log_<date>.json)
-├── analysis_results/       # Flat per-run result snapshots
-├── saved_tickers.json      # Persisted watchlist
-├── dashboard.html          # Legacy vanilla UI (kept as fallback)
-├── history.html            # Legacy vanilla UI (kept as fallback)
-└── analysis_viewer.html    # Legacy vanilla UI (kept as fallback)
+├── data/                   # Runtime data
+│   ├── saved_tickers.json  # Persisted watchlist (tracked)
+│   ├── eval_results/        # Per-ticker analysis logs (full_states_log_<date>.json) — gitignored
+│   ├── analysis_results/    # Flat per-run result snapshots — gitignored
+│   └── results/             # Legacy result dir — gitignored
+├── main.py                 # Example script: run the graph directly
+├── pyproject.toml / setup.py  # Packaging (root layout — keep here)
+└── README.md / LICENSE
 ```
 
-The frontend is the primary UI. The three legacy `*.html` files and their
-FastAPI `HTMLResponse` routes (`/`, `/history`, `/analysis`) remain served by
-the backend as a no-build fallback and are intentionally left unchanged.
+The frontend is the primary UI. The three legacy HTML files in
+`backend/templates/` and their FastAPI `HTMLResponse` routes (`/`, `/history`,
+`/analysis`) remain served by the backend as a no-build fallback and are
+intentionally left unchanged.
+
+`backend/server.py` resolves all paths (templates, worker, data dirs) relative
+to its own location and adds the repo root to `sys.path`, so it runs correctly
+regardless of the current working directory.
 
 ## Running
 
@@ -29,7 +39,7 @@ Backend (terminal 1):
 
 ```bash
 # from repo root, with .venv active and .env populated (OPENAI_API_KEY, ALPHA_VANTAGE_API_KEY)
-python fastapi_server.py        # http://localhost:8000
+python backend/server.py        # http://localhost:8000
 ```
 
 Frontend (terminal 2):

@@ -3,6 +3,26 @@
 Best-practice decisions made during the UI/UX revamp, with rationale. Newest
 first.
 
+## Repository structure
+
+- **Isolated the web layer into `backend/` and runtime data into `data/`.** The
+  root was mixing the upstream research package with a bolted-on web server,
+  loose HTML, and scattered result dirs. Now: `backend/server.py`,
+  `backend/worker.py`, `backend/templates/` (legacy HTML), and
+  `data/{saved_tickers.json,eval_results,analysis_results,results}`.
+- **Left the Python package and packaging at root.** `tradingagents/`, `cli/`,
+  `setup.py`, and `pyproject.toml` stay put — `find_packages()`, the
+  `tradingagents` console script, and editable installs depend on the root
+  layout. Moving them would break imports for no benefit.
+- **`server.py` resolves paths from `__file__`, not CWD**, and inserts the repo
+  root into `sys.path`, so `python backend/server.py` works from anywhere. The
+  per-analysis subprocess runs with `cwd=PROJECT_ROOT` so the worker can import
+  `tradingagents`.
+- **Fixed the Windows cp1252 crash** by forcing UTF-8 stdout/stderr in
+  `server.py` (the `✓` startup log previously raised `UnicodeEncodeError`).
+- **Renamed for clarity:** `fastapi_server.py → backend/server.py`,
+  `trading_worker.py → backend/worker.py`. Used `git mv` to preserve history.
+
 ## Stack & structure
 
 - **Next.js 15 (App Router) + TypeScript** replaces the stale Vite + React 19

@@ -8,21 +8,43 @@ from datetime import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import os
+import sys
 from dotenv import load_dotenv
 import json
 from pathlib import Path
 from fastapi import Request
 
-TICKERS_FILE = "saved_tickers.json"
-RESULTS_DIR = "analysis_results"
+# Force UTF-8 stdout/stderr so unicode logs (e.g. "✓") don't crash on Windows cp1252.
+if sys.platform == "win32":
+    import io
 
-# Create results directory if it doesn't exist
-Path(RESULTS_DIR).mkdir(exist_ok=True)
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# Resolve all paths relative to this file so the server works regardless of CWD.
+BASE_DIR = Path(__file__).resolve().parent          # backend/
+PROJECT_ROOT = BASE_DIR.parent                       # repo root
+TEMPLATES_DIR = BASE_DIR / "templates"               # backend/templates/
+DATA_DIR = PROJECT_ROOT / "data"                     # data/
+WORKER_SCRIPT = BASE_DIR / "worker.py"
+
+# Ensure the tradingagents package (at the repo root) is importable when the
+# server is launched as `python backend/server.py`.
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+TICKERS_FILE = DATA_DIR / "saved_tickers.json"
+RESULTS_DIR = DATA_DIR / "analysis_results"
+EVAL_RESULTS_DIR = DATA_DIR / "eval_results"
+
+# Create data directories if they don't exist
+DATA_DIR.mkdir(exist_ok=True)
+RESULTS_DIR.mkdir(exist_ok=True)
 
 # Add these helper functions before your endpoints
 def load_saved_tickers():
     """Load saved tickers from JSON file"""
-    if os.path.exists(TICKERS_FILE):
+    if TICKERS_FILE.exists():
         try:
             with open(TICKERS_FILE, 'r') as f:
                 return json.load(f)
@@ -44,7 +66,7 @@ def save_analysis_result(ticker, date, decision, config):
     """Save analysis result to JSON file"""
     try:
         timestamp = datetime.now().isoformat()
-        filename = f"{RESULTS_DIR}/{ticker}_{date}_{timestamp.replace(':', '-')}.json"
+        filename = str(RESULTS_DIR / f"{ticker}_{date}_{timestamp.replace(':', '-')}.json")
         
         result = {
             "ticker": ticker,
@@ -120,7 +142,7 @@ DASHBOARD_HTML = """
 @app.get("/", response_class=HTMLResponse)
 async def root():
     try:
-        with open("dashboard.html", "r", encoding="utf-8") as f:
+        with open(TEMPLATES_DIR / "dashboard.html", "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
         return """
@@ -161,9 +183,11 @@ async def analyze_stock(request: TradingRequest):
             config_file = f.name
         
         # Create a worker script path
-        worker_script = os.path.join(os.path.dirname(__file__), 'trading_worker.py')
+        worker_script = str(WORKER_SCRIPT)
         
-        # Run analysis in a separate process with UTF-8 encoding
+        # Run analysis in a separate process with UTF-8 encoding.
+        # cwd=PROJECT_ROOT so the worker can import tradingagents and resolve
+        # its own data paths regardless of where the server was launched from.
         result = subprocess.run(
             [sys.executable, worker_script, config_file],
             capture_output=True,
@@ -171,6 +195,7 @@ async def analyze_stock(request: TradingRequest):
             encoding='utf-8',
             errors='replace',
             timeout=600,
+            cwd=str(PROJECT_ROOT),
             env={**os.environ, 'PYTHONIOENCODING': 'utf-8'}
         )
         
@@ -383,6 +408,135 @@ async def update_tickers(request: Request):
         return {"message": "Tickers saved successfully", "tickers": tickers_list}
     else:
         raise HTTPException(status_code=500, detail="Failed to save tickers")
+    
+@app.get("/results")
+async def list_results():
+    """Get list of all saved analysis results from eval_results"""
+    try:
+        results_dir = EVAL_RESULTS_DIR
+        if not results_dir.exists():
+            return {"results": []}
+        
+        ticker_results = {}
+        
+        # Walk through eval_results/TICKER/TradingAgentsStrategy_logs/
+        for ticker_dir in results_dir.iterdir():
+            if not ticker_dir.is_dir():
+                continue
+                
+            ticker = ticker_dir.name
+            logs_dir = ticker_dir / "TradingAgentsStrategy_logs"
+            
+            if not logs_dir.exists():
+                continue
+            
+            analyses = []
+            
+            # Find all full_states_log files
+            for file_path in logs_dir.glob("full_states_log_*"):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Extract date from filename
+                    date_match = file_path.name.replace('full_states_log_', '')
+                    
+                    # Get the analysis data (first date key in the file)
+                    date_keys = list(data.keys())
+                    if not date_keys:
+                        continue
+                    
+                    analysis = data[date_keys[0]]
+                    
+                    # Better decision extraction - look for the proposal format
+                    decision_text = analysis.get('final_trade_decision', '')
+                    decision_match = 'UNKNOWN'
+                    
+                    # Look for "FINAL TRANSACTION PROPOSAL: **DECISION**" pattern
+                    if 'FINAL TRANSACTION PROPOSAL' in decision_text:
+                        if '**SELL**' in decision_text or 'PROPOSAL: **Sell**' in decision_text:
+                            decision_match = 'SELL'
+                        elif '**BUY**' in decision_text or 'PROPOSAL: **Buy**' in decision_text:
+                            decision_match = 'BUY'
+                        elif '**HOLD**' in decision_text or 'PROPOSAL: **Hold**' in decision_text:
+                            decision_match = 'HOLD'
+                    # Fallback: look anywhere in the text
+                    elif 'Recommendation: **Sell**' in decision_text or 'recommendation is to **Sell**' in decision_text.lower():
+                        decision_match = 'SELL'
+                    elif 'Recommendation: **Buy**' in decision_text or 'recommendation is to **Buy**' in decision_text.lower():
+                        decision_match = 'BUY'
+                    elif 'Recommendation: **Hold**' in decision_text or 'recommendation is to **Hold**' in decision_text.lower():
+                        decision_match = 'HOLD'
+                    
+                    analyses.append({
+                        "date": analysis.get("trade_date", date_match),
+                        "decision": decision_match
+                    })
+                    
+                except Exception as e:
+                    print(f"Error reading {file_path}: {e}")
+                    continue
+            
+            # Sort analyses by date (newest first)
+            analyses.sort(key=lambda x: x.get("date", ""), reverse=True)
+            
+            if analyses:
+                ticker_results[ticker] = analyses
+        
+        return {"results": ticker_results}
+        
+    except Exception as e:
+        print(f"Error listing results: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/results/{ticker}/{date}")
+async def get_result(ticker: str, date: str):
+    """Get a specific analysis result by ticker and date"""
+    try:
+        # Construct the file path
+        file_path = EVAL_RESULTS_DIR / ticker / "TradingAgentsStrategy_logs" / f"full_states_log_{date}.json"
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Result not found at {file_path}")
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error reading result: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/history", response_class=HTMLResponse)
+async def history_page():
+    try:
+        with open(TEMPLATES_DIR / "history.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return """
+        <html>
+        <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+        <h1>❌ History Page Not Found</h1>
+        <p>Please create 'history.html' in the same directory as this server.</p>
+        <p><a href="/">Back to Dashboard</a></p>
+        </body>
+        </html>
+        """
+        
+@app.get("/analysis", response_class=HTMLResponse)
+async def analysis_viewer():
+    try:
+        with open(TEMPLATES_DIR / "analysis_viewer.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<html><body><h1>Analysis viewer not found</h1></body></html>"
     
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
