@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getTickers, saveTickers } from "@/lib/api";
+import { saveTickers } from "@/lib/api";
 
 export function TickerManager({
   tickers,
